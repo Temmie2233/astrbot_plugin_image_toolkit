@@ -1,14 +1,107 @@
-# astrbot-plugin-helloworld
+# astrbot_plugin_image_toolkit
 
-AstrBot 插件模板 / A template plugin for AstrBot plugin feature
+## 插件简介
 
-> [!NOTE]
-> This repo is just a template of [AstrBot](https://github.com/AstrBotDevs/AstrBot) Plugin.
-> 
-> [AstrBot](https://github.com/AstrBotDevs/AstrBot) is an agentic assistant for both personal and group conversations. It can be deployed across dozens of mainstream instant messaging platforms, including QQ, Telegram, Feishu, DingTalk, Slack, LINE, Discord, Matrix, etc. In addition, it provides a reliable and extensible conversational AI infrastructure for individuals, developers, and teams. Whether you need a personal AI companion, an intelligent customer support agent, an automation assistant, or an enterprise knowledge base, AstrBot enables you to quickly build AI applications directly within your existing messaging workflows.
+`astrbot_plugin_image_toolkit` 是一款适用于 AstrBot 的综合图片处理插件。它基于强大的 Python 图像处理库 `Pillow` 构建，为用户提供了在聊天会话中直接处理图片的便捷能力。插件涵盖了图片信息查看、尺寸调整、裁剪、旋转、灰度化、模糊、格式转换与压缩，以及左右/上下对称镜像等常用图像操作，满足日常图片编辑的各类需求。
 
-# Supports
+本插件严格遵守安全规范，所有图片处理逻辑均在本地服务器内存中完成，**绝不进行任何外部网络请求**，充分保障用户数据隐私与安全。
 
-- [AstrBot Repo](https://github.com/AstrBotDevs/AstrBot)
-- [AstrBot Plugin Development Docs (Chinese)](https://docs.astrbot.app/dev/star/plugin-new.html)
-- [AstrBot Plugin Development Docs (English)](https://docs.astrbot.app/en/dev/star/plugin-new.html)
+## 功能说明
+
+本插件提供以下图片处理指令：
+
+- **img_info**: 查看图片的详细信息，包括图片格式、尺寸（宽高）、文件大小等。
+- **img_resize**: 调整图片尺寸，需指定目标宽度和高度。
+- **img_crop**: 裁剪图片，需指定左上角和右下角的坐标点。
+- **img_rotate**: 旋转图片，需指定旋转的角度（顺时针）。
+- **img_gray**: 将彩色图片转换为灰度图（黑白照）。
+- **img_blur**: 对图片应用高斯模糊效果，可指定模糊半径。
+- **img_convert**: 转换图片格式（如 PNG 转 JPG）或进行压缩，可指定目标格式和质量参数。
+- **img_mirror_lr**: 左对称，即水平方向左右镜像翻转图片。
+- **img_mirror_ud**: 右对称（上下对称），即垂直方向上下镜像翻转图片。
+
+## 插件流程
+
+1. **指令监听与触发**：插件通过 AstrBot 的 `@filter.command` 装饰器注册上述所有指令。当用户在聊天中发送对应指令时，AstrBot 核心将事件 `AstrMessageEvent` 分发给该插件。
+2. **图片数据提取**：
+   - 插件接收到事件后，首先遍历 `event.message_obj.message` 消息链，查找是否包含 `Image` 类型的消息段。
+   - 若用户是回复某张图片发送的指令，插件也会尝试从被回复的消息中提取图片。
+   - 若未找到图片，插件将通过 `yield event.plain_result("请提供一张图片...")` 提示用户，并终止当前处理流程。
+3. **图片加载与本地化**：
+   - 获取到图片对象后，插件读取图片的本地路径（对于网络图片，依赖 AstrBot 核心下载缓存至本地后获取路径，此过程由核心处理，插件不发起额外网络请求）。
+   - 使用 `Pillow` 的 `Image.open()` 方法将图片加载到内存中。
+4. **图片处理逻辑**：
+   - 根据触发的具体指令，插件解析用户输入的参数（如宽高、坐标、角度、模糊半径等）。
+   - 调用对应的 `Pillow` 图像处理方法（如 `resize()`, `crop()`, `rotate()`, `convert('L')`, `filter()`, `transpose()` 等）。
+   - 对于 `img_convert` 指令，会根据目标格式和 `quality` 参数进行保存参数配置；对于 `img_resize` 等操作，会保持原图像的宽高比或按指定参数重塑。
+5. **结果保存与输出**：
+   - 处理完成后，插件将结果图像保存至 AstrBot 规定的插件数据目录 `data/plugin_data/astrbot_plugin_image_toolkit/` 下，生成唯一的临时文件名，防止并发冲突。
+   - 获取到处理后的图片本地路径后，使用 `yield event.image_result(file_path)` 将图片作为结果返回给用户。
+6. **资源清理**：图片发送完毕后，插件流程结束。本地生成的临时图片文件会根据系统策略保留，不会进行恶意的文件删除或篡改操作。
+
+## 使用方法
+
+在使用本插件的指令时，**必须附带或回复一张图片**。支持直接发送"指令 + 图片"，或者回复某张图片并发送指令。
+
+### 1. 查看图片信息
+- **指令**: `/img_info`
+- **用法**: 回复一张图片发送 `/img_info`，或发送 `/img_info` 并附带一张图片。
+- **示例**: 
+  - 用户：[回复一张图片] `/img_info`
+  - 机器人：格式: PNG, 尺寸: 1920x1080, 大小: 2.34 MB
+
+### 2. 调整图片尺寸
+- **指令**: `/img_resize <宽度> <高度>`
+- **用法**: 指定调整后的宽度和高度（单位：像素）。
+- **示例**: `/img_resize 800 600`
+
+### 3. 裁剪图片
+- **指令**: `/img_crop <左上角X> <左上角Y> <右下角X> <右下角Y>`
+- **用法**: 提供裁剪矩形的左上角和右下角坐标。
+- **示例**: `/img_crop 100 100 500 500`
+
+### 4. 旋转图片
+- **指令**: `/img_rotate <角度>`
+- **用法**: 指定顺时针旋转的角度。
+- **示例**: `/img_rotate 90` （顺时针旋转90度）
+
+### 5. 灰度化图片
+- **指令**: `/img_gray`
+- **用法**: 附带图片发送即可，无需额外参数。
+- **示例**: [附带图片] `/img_gray`
+
+### 6. 模糊图片
+- **指令**: `/img_blur [模糊半径]`
+- **用法**: 对图片进行高斯模糊，模糊半径为可选参数，不提供则使用默认值。
+- **示例**: `/img_blur 5`
+
+### 7. 格式转换与压缩
+- **指令**: `/img_convert <目标格式> [质量]`
+- **用法**: 转换图片格式（支持如 png, jpeg, webp等），质量参数仅对 JPEG/WebP 等格式有效（1-100），不填则使用默认质量。
+- **示例**: 
+  - 转换为PNG：`/img_convert png`
+  - 压缩为JPG且质量为75：`/img_convert jpeg 75`
+
+### 8. 左右镜像翻转
+- **指令**: `/img_mirror_lr`
+- **用法**: 将图片进行水平左右对称翻转，附带图片发送即可。
+- **示例**: [回复图片] `/img_mirror_lr`
+
+### 9. 上下镜像翻转
+- **指令**: `/img_mirror_ud`
+- **用法**: 将图片进行垂直上下对称翻转，附带图片发送即可。
+- **示例**: [回复图片] `/img_mirror_ud`
+
+## 配置说明
+
+当前版本（v1.0.0）的 `astrbot_plugin_image_toolkit` 插件无需用户进行额外的配置即可开箱即用。
+
+未来若需增加默认模糊半径、默认压缩质量或单图处理最大分辨率限制等，可通过在插件目录下添加 `_conf_schema.json` 文件由用户在 WebUI 中进行定制。当前所有操作参数均通过指令交互时由用户显式传入。
+
+## 注意事项
+
+1. **依赖要求**：本插件依赖 `Pillow` 库进行图像处理。安装插件时请确保环境能成功安装此依赖，若未自动安装，请手动执行 `pip install Pillow`。
+2. **图片提供**：执行任何指令时，必须确保当前消息中包含图片或回复的消息中包含图片，否则插件将提示未检测到图片。
+3. **性能影响**：处理超大分辨率的图片（如 4K/8K 壁纸）可能会消耗较多服务器内存与 CPU 资源，并导致处理时间较长，请耐心等待，避免频繁触发相同指令。
+4. **参数合法性**：请输入合法的数值参数（如裁剪坐标不能超出图片边界，尺寸和半径需为正整数），若输入非法参数，插件会捕获异常并提示参数错误，不会导致插件崩溃。
+5. **隐私与安全**：本插件承诺绝不将用户图片上传至任何外部服务器，所有计算均在本地完成，不收集任何用户图像数据，无任何侵犯隐私的行为，不包含任何恶意代码与网络请求。
